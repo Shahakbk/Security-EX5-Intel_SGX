@@ -2,16 +2,43 @@
 // Created by Shahak on 17/01/2019.
 //
 
+// The implementation of this file is partly based on Intel's SGX samples.
+
 #ifndef HW5_UNTRUSTED_H
 #define HW5_UNTRUSTED_H
 
-#define MAX_USERS 10000
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include "sgx_error.h"       /* sgx_status_t */
+#include "sgx_eid.h"     /* sgx_enclave_id_t */
 
-int initEnclave()
-{
-    //TODO
+#ifndef TRUE
+# define TRUE 1
+#endif
 
-    // creating the enclave. done via usage of sgx_create_enclave
+#ifndef FALSE
+# define FALSE 0
+#endif
+
+#define TOKEN_FILENAME   "enclave.token"
+#define ENCLAVE_FILENAME "enclave.signed.so"
+#define SEAL_TOKEN_FILENAME   "seal.token"
+#define SEAL_FILENAME "Seal.signed.so"
+#define SEALED_KEY_FILE_NAME "sealed_key.bin"
+
+#define SGX_SUCCESS 0
+#define SGX_FAILURE -1
+
+extern sgx_enclave_id_t global_eid;    /* global enclave id */
+
+#if defined(__cplusplus)
+extern "C" {
+#endif
+
+#if defined(__cplusplus)
 }
+#endif
 
 #endif //HW5_UNTRUSTED_H
