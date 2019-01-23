@@ -17,7 +17,7 @@
 #include <netinet/in.h>
 
 #include "untrusted.h"
-#include "Enclave_u.h"
+#include "enclave_u.h"
 #include "Seal_u.h"
 
 #define TOKEN_FILENAME            "enclave.token"
@@ -487,9 +487,9 @@ int SGX_CDECL main(int argc, char *argv[])
     /** Creating public & private key pairs. **/
     debug(sender, "Creating public & private keys.");
 
-    sgx_ecc256_public_t encryption_key, get_encryption_key;
-    sgx_ecc256_public_t signature_key, get_signature_key;
-    ret = ecall_enclave_generate_keys(global_eid, &ecall_return, &encryption_key, &signature_key);
+    sgx_ecc256_public_t public_encryption_key, get_public_encryption_key;
+    sgx_ecc256_public_t public_signature_key, get_public_signature_key;
+    ret = ecall_enclave_generate_keys(global_eid, &ecall_return, &public_encryption_key, &public_signature_key);
     if (SGX_SUCCESS != ret)
     {
         printf("Keys generation process was not successful.\n");
@@ -506,8 +506,8 @@ int SGX_CDECL main(int argc, char *argv[])
     if (isBob(sender))
     {
         // Write the public keys to the socket.
-        if (0 > writeToSocket(socketFD, &encryption_key, sizeof(encryption_key)) ||
-            0 > writeToSocket(socketFD, &signature_key, sizeof(signature_key)))
+        if (0 > writeToSocket(socketFD, &public_encryption_key, sizeof(public_encryption_key)) ||
+            0 > writeToSocket(socketFD, &public_signature_key, sizeof(public_signature_key)))
         {
             printf("Writing the public key to the socket has failed.\n");
             close(socketFD);
@@ -516,8 +516,8 @@ int SGX_CDECL main(int argc, char *argv[])
     } else if (isAlice(sender))
     {
         // Read the public keys from the socket.
-        if (0 > readFromSocket(socketFD, &get_encryption_key, sizeof(get_encryption_key)) ||
-            0 > readFromSocket(socketFD, &get_signature_key, sizeof(get_signature_key)))
+        if (0 > readFromSocket(socketFD, &get_public_encryption_key, sizeof(get_public_encryption_key)) ||
+            0 > readFromSocket(socketFD, &get_public_signature_key, sizeof(get_public_signature_key)))
         {
             printf("Reading the public key to the socket has failed.\n");
             close(socketFD);
@@ -531,8 +531,8 @@ int SGX_CDECL main(int argc, char *argv[])
     if (isBob(sender))
     {
         // Read the public keys from the socket.
-        if (0 > readFromSocket(socketFD, &get_encryption_key, sizeof(get_encryption_key)) ||
-            0 > readFromSocket(socketFD, &get_signature_key, sizeof(get_signature_key)))
+        if (0 > readFromSocket(socketFD, &get_public_encryption_key, sizeof(get_public_encryption_key)) ||
+            0 > readFromSocket(socketFD, &get_public_signature_key, sizeof(get_public_signature_key)))
         {
             printf("Reading the public key to the socket has failed.\n");
             close(socketFD);
@@ -541,8 +541,8 @@ int SGX_CDECL main(int argc, char *argv[])
     } else if (isAlice(sender))
     {
         // Write the public keys to the socket.
-        if (0 > writeToSocket(socketFD, &encryption_key, sizeof(encryption_key)) ||
-            0 > writeToSocket(socketFD, &signature_key, sizeof(signature_key)))
+        if (0 > writeToSocket(socketFD, &public_encryption_key, sizeof(public_encryption_key)) ||
+            0 > writeToSocket(socketFD, &public_signature_key, sizeof(public_signature_key)))
         {
             printf("Writing the public key to the socket has failed.\n");
             close(socketFD);
@@ -553,7 +553,7 @@ int SGX_CDECL main(int argc, char *argv[])
     /** Generate a shared key using DH. **/
     debug(sender, "Generating a shared key.");
 
-    ret = ecall_enclave_generate_shared_key(global_eid, &ecall_return, &get_encryption_key, &get_signature_key);
+    ret = ecall_enclave_generate_shared_key(global_eid, &ecall_return, &get_public_encryption_key, &get_public_signature_key);
     if (SGX_SUCCESS != ret)
     {
         printf("Shared key generation has failed.\n");
@@ -565,9 +565,10 @@ int SGX_CDECL main(int argc, char *argv[])
     debug(sender, "Encrypting the data on the enclave.");
 
     unsigned int encrypted_data[MAX_DATA], get_encrypted_data[MAX_DATA];
+    unsigned int encrypted_num_customers = 0, get_encrypted_num_customers = 0;
     sgx_ecc256_signature_t data_signature, get_data_signature;
 
-    ret = ecall_enclave_encrypt_data(global_eid, &ecall_return, encrypted_data, &data_signature);
+    ret = ecall_enclave_encrypt_data(global_eid, &ecall_return, encrypted_data, &encrypted_num_customers, &data_signature);
     if (SGX_SUCCESS != ret)
     {
         printf("Data encryption in the enclave has failed.\n");
@@ -584,7 +585,8 @@ int SGX_CDECL main(int argc, char *argv[])
     if (isAlice(sender))
     {
         if (0 > writeToSocket(socketFD, &data_signature, sizeof(data_signature)) ||
-            0 > writeToSocket(socketFD, encrypted_data, sizeof(encrypted_data)))
+            0 > writeToSocket(socketFD, encrypted_data, sizeof(encrypted_data)) ||
+            0 > writeToSocket(socketFD, &encrypted_num_customers, sizeof(encrypted_num_customers)))
         {
             printf("Writing encrypted data to the enclave has failed.\n");
             close(socketFD);
@@ -593,7 +595,8 @@ int SGX_CDECL main(int argc, char *argv[])
     } else if (isBob(sender))
     {
         if (0 > readFromSocket(socketFD, &get_data_signature, sizeof(get_data_signature)) ||
-            0 > readFromSocket(socketFD, get_encrypted_data, sizeof(get_encrypted_data)))
+            0 > readFromSocket(socketFD, get_encrypted_data, sizeof(get_encrypted_data)) ||
+            0 > readFromSocket(socketFD, &get_encrypted_num_customers, sizeof(get_encrypted_num_customers)))
         {
             printf("Reading encrypted data to the enclave has failed.\n");
             close(socketFD);
@@ -607,7 +610,8 @@ int SGX_CDECL main(int argc, char *argv[])
     if (isBob(sender))
     {
         if (0 > writeToSocket(socketFD, &data_signature, sizeof(data_signature)) ||
-            0 > writeToSocket(socketFD, encrypted_data, sizeof(encrypted_data)))
+            0 > writeToSocket(socketFD, encrypted_data, sizeof(encrypted_data)) ||
+            0 > writeToSocket(socketFD, &encrypted_num_customers, sizeof(encrypted_num_customers)))
         {
             printf("Writing encrypted data to the enclave has failed.\n");
             close(socketFD);
@@ -616,7 +620,8 @@ int SGX_CDECL main(int argc, char *argv[])
     } else if (isAlice(sender))
     {
         if (0 > readFromSocket(socketFD, &get_data_signature, sizeof(get_data_signature)) ||
-            0 > readFromSocket(socketFD, get_encrypted_data, sizeof(get_encrypted_data)))
+            0 > readFromSocket(socketFD, get_encrypted_data, sizeof(get_encrypted_data)) ||
+            0 > readFromSocket(socketFD, &get_encrypted_num_customers, sizeof(get_encrypted_num_customers)))
         {
             printf("Reading encrypted data to the enclave has failed.\n");
             close(socketFD);
@@ -627,7 +632,7 @@ int SGX_CDECL main(int argc, char *argv[])
     /** Both Alice and Bob write the write signatures and encrypted data into their own enclave. **/
     debug("Writing the encrypted data into the enclave.");
 
-    ret = ecall_enclave_write_encrypted(global_eid, &ecall_return, get_encrypted_data, get_data_signature);
+    ret = ecall_enclave_write_encrypted(global_eid, &ecall_return, get_encrypted_data, get_encrypted_num_customers, get_data_signature);
     if (SGX_SUCCESS != ret)
     {
         printf("Writing the received encrypted data to the enclave has failed.\n");
