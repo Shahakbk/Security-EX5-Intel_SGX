@@ -1,0 +1,24 @@
+/* compsecEnclave.edl - Top EDL file. */
+
+enclave {
+    include "sgx_tcrypto.h"
+    /*
+     * ocall_compsecEnclave_sample - invokes OCALL to display string buffer inside the enclave.
+     *  [in]: copy the string buffer to App outside.
+     *  [string]: specifies 'str' is a NULL terminated buffer.
+     */
+    untrusted {
+    };
+
+
+    trusted {
+
+    	    public int ecall_enclave_write([user_check] unsigned int *data);
+    	    public int ecall_enclave_generate_keys([in, out, isptr] sgx_ec256_public_t *public_encryption_key, [out] sgx_ec256_public_t *public_signature_key);
+    	    public int ecall_enclave_generate_shared_key([in] sgx_ec256_public_t *received_public_encryption_key, [in] sgx_ec256_public_t *received_public_signature_key);
+    	    public int ecall_enclave_encrypt_data([out , size = (80000 + 4)] unsigned int *encrypted_data, [out] sgx_ec256_signature_t *data_signature);
+    	    public int ecall_enclave_write_encrypted([user_check] unsigned int *encrypted_data, sgx_ec256_signature_t data_signature);
+    	    public int ecall_enclave_decrypt_data();
+    	    public int ecall_enclave_calculate_avg([out] double *result, [out] sgx_ec256_signature_t *result_signature);
+    };
+};

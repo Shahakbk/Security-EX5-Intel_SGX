@@ -3,28 +3,30 @@
 //
 
 #include <iostream>
-#include <stdio.h>
+#include <string>
 #include <string.h>
 #include <assert.h>
 #include <unistd.h>
 #include <libgen.h>
 #include <pwd.h>
 #include <fstream>
-#include <netdb.h>
 #include <sgx_urts.h>
+
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/in.h>
+#include <netdb.h>
 
-#include "untrusted.h"
-#include "enclave_u.h"
-#include "Seal_u.h"
+#include "sample.h"
+#include "compsecEnclave_u.h"
 
-#define TOKEN_FILENAME            "enclave.token"
 #define MAX_USERS 10000
-#define MAX_DATA 20000
+#define MAX_DATA ((2 * MAX_USERS) + 1)
+#define MAX_DATA_SIZE ((sizeof(unsigned int)) * MAX_DATA)
 #define PORT (5765)
 #define MAX_PATH FILENAME_MAX
+
+using std::string;
 
 /* Global EID shared by multiple threads */
 sgx_enclave_id_t global_eid = 0;
@@ -140,7 +142,7 @@ void printErrorMessage(sgx_status_t ret)
  *   Step 2: call sgx_create_enclave to initialize an enclave instance
  *   Step 3: save the launch token if it is updated
  */
-sgx_status_t  initEnclave(void)
+int initEnclave(void)
 {
     char token_path[MAX_PATH] = {'\0'};
     sgx_launch_token_t token = {0};
@@ -188,9 +190,9 @@ sgx_status_t  initEnclave(void)
 
     // PCL usage for intellectual property protection removed.
 
-    ret = sgx_create_enclave(file_name, SGX_DEBUG_FLAG, &token, &updated, eid, NULL);
+    ret = sgx_create_enclave(ENCLAVE_FILENAME, SGX_DEBUG_FLAG, &token, &updated, &global_eid, NULL);
     if (ret != SGX_SUCCESS) {
-        print_error_message(ret);
+        printErrorMessage(ret);
         if (fp != NULL) fclose(fp);
         return SGX_FAILURE;
     }
@@ -265,7 +267,7 @@ int openSocketServer()
     }
 
     // Listen on the socket.
-    listen_socket_res = listen(socketFD,1);
+    int listen_socket_res = listen(socketFD,1);
     if(listen_socket_res < 0){
         printf("Listening on socket was not successful.\n");
         close(socketFD);
@@ -275,7 +277,7 @@ int openSocketServer()
     socklen_t clilen = sizeof(client_address);
 
     // Accept the socket.
-    newsocketFD = accept(socketFD, (struct sockaddr*)&cli_addr, &clilen);
+    newsocketFD = accept(socketFD, (struct sockaddr*)&client_address, &clilen);
     if (newsocketFD < 0){
         printf("Socket accepting was not successful.\n");
         close(socketFD);
@@ -327,7 +329,7 @@ int openSocketClient(){
     server_address.sin_port = htons(PORT);
 
     // Connect the socket.
-    connect_socket_res = connect(socketFD,(struct sockaddr*)&server_address,sizeof(server_address));
+    int connect_socket_res = connect(socketFD,(struct sockaddr*)&server_address,sizeof(server_address));
     if (connect_socket_res < 0){
         printf("Socket was not connected successfully.\n");
         return SOCKET_FAILURE;
@@ -367,13 +369,13 @@ int readFromSocket(int socketFD, void* data, int size){
     return SOCKET_SUCCESS;
 }
 
-int readDataFromFile(char* file_path, unsigned int* data, unsigned int* ret_customers_num){
+int readDataFromFile(char* file_path, unsigned int* data){
 
     // If file opening fails, an exception may be thrown.
     try
     {
-        int idx = 0, customers_num = 0;
-        unsigned int id, sum;
+        int idx = 0;
+        unsigned int id, sum, customers_num = 0;
         std::fstream input;
 
         // Try to open the file.
@@ -387,8 +389,8 @@ int readDataFromFile(char* file_path, unsigned int* data, unsigned int* ret_cust
             data[idx++] = sum;
         }
 
-        // Return the number of customers.
-        *ret_customers_num = customers_num;
+        // Save the number of customers as the first member.
+        data[0] = customers_num;
 
     } catch (...) {
         return FILE_READ_FAILURE;
@@ -440,13 +442,13 @@ int SGX_CDECL main(int argc, char *argv[])
     debug(sender, "Opening a socket.");
 
     int socketFD;
-    if (isAlice(sender)
+    if (isAlice(sender))
     {
         socketFD = openSocketServer();
         if (0 > socketFD) {
             abort();
         }
-    } else if (isBob(sender)
+    } else if (isBob(sender))
     {
         socketFD = openSocketClient();
         if (0 > socketFD)
@@ -458,9 +460,8 @@ int SGX_CDECL main(int argc, char *argv[])
     /** Reading the sender's data from the file. **/
     debug(sender, "Reading from a file to the enclave.");
 
-    unsigned int data[MAX_DATA]; //TODO memset 0?
-    unsigned int num_customers = 0;
-    if (FILE_READ_FAILURE == readDataFromFile(file_path, data, num_customers))
+    unsigned int data[MAX_DATA];
+    if (FILE_READ_FAILURE == readDataFromFile(file_path, data))
     {
         printf("Error reading from file.\n");
         close(socketFD);
@@ -473,7 +474,7 @@ int SGX_CDECL main(int argc, char *argv[])
     debug(sender, "Writing data to the enclave.");
 
     int ecall_return = 0;
-    ret = ecall_enclave_write(global_eid, &ecall_return, data, num_customers);
+    ret = ecall_compsecEnclave_write(global_eid, &ecall_return, data);
     if (SGX_SUCCESS != ret)
     {
         printf("Writing to enclave was not successful.\n");
@@ -487,9 +488,9 @@ int SGX_CDECL main(int argc, char *argv[])
     /** Creating public & private key pairs. **/
     debug(sender, "Creating public & private keys.");
 
-    sgx_ecc256_public_t public_encryption_key, get_public_encryption_key;
-    sgx_ecc256_public_t public_signature_key, get_public_signature_key;
-    ret = ecall_enclave_generate_keys(global_eid, &ecall_return, &public_encryption_key, &public_signature_key);
+    sgx_ec256_public_t public_encryption_key, get_public_encryption_key;
+    sgx_ec256_public_t public_signature_key, get_public_signature_key;
+    ret = ecall_compsecEnclave_generate_keys(global_eid, &ecall_return, &public_encryption_key, &public_signature_key);
     if (SGX_SUCCESS != ret)
     {
         printf("Keys generation process was not successful.\n");
@@ -550,10 +551,10 @@ int SGX_CDECL main(int argc, char *argv[])
         }
     }
 
-    /** Generate a shared key using DH. **/
+    /** Generate a shared key using DH and ECC256. **/
     debug(sender, "Generating a shared key.");
 
-    ret = ecall_enclave_generate_shared_key(global_eid, &ecall_return, &get_public_encryption_key, &get_public_signature_key);
+    ret = ecall_compsecEnclave_generate_shared_key(global_eid, &ecall_return, &get_public_encryption_key, &get_public_signature_key);
     if (SGX_SUCCESS != ret)
     {
         printf("Shared key generation has failed.\n");
@@ -566,9 +567,9 @@ int SGX_CDECL main(int argc, char *argv[])
 
     unsigned int encrypted_data[MAX_DATA], get_encrypted_data[MAX_DATA];
     unsigned int encrypted_num_customers = 0, get_encrypted_num_customers = 0;
-    sgx_ecc256_signature_t data_signature, get_data_signature;
+    sgx_ec256_signature_t data_signature, get_data_signature;
 
-    ret = ecall_enclave_encrypt_data(global_eid, &ecall_return, encrypted_data, &encrypted_num_customers, &data_signature);
+    ret = ecall_compsecEnclave_encrypt_data(global_eid, &ecall_return, encrypted_data, &encrypted_num_customers, &data_signature);
     if (SGX_SUCCESS != ret)
     {
         printf("Data encryption in the enclave has failed.\n");
@@ -577,7 +578,7 @@ int SGX_CDECL main(int argc, char *argv[])
     }
 
     /** Exchanging encrypted data and signatures. **/
-    debug("Exchanging encrypted data.");
+    debug(sender, "Exchanging encrypted data.");
 
     // Alice sends her signature and encrypted data to Bob.
     debug(sender, "Alice sends encrypted data and signature to Bob.");
@@ -630,9 +631,9 @@ int SGX_CDECL main(int argc, char *argv[])
     }
 
     /** Both Alice and Bob write the write signatures and encrypted data into their own enclave. **/
-    debug("Writing the encrypted data into the enclave.");
+    debug(sender, "Writing the encrypted data into the enclave.");
 
-    ret = ecall_enclave_write_encrypted(global_eid, &ecall_return, get_encrypted_data, get_encrypted_num_customers, get_data_signature);
+    ret = ecall_compsecEnclave_write_encrypted(global_eid, &ecall_return, get_encrypted_data, &get_encrypted_num_customers, get_data_signature);
     if (SGX_SUCCESS != ret)
     {
         printf("Writing the received encrypted data to the enclave has failed.\n");
@@ -641,9 +642,9 @@ int SGX_CDECL main(int argc, char *argv[])
     }
 
     /** Both Alice and Bob decrypt the encrypted data in their own enclave using the shared key **/
-    debug("Decrypting encrypted data in the enclave.");
+    debug(sender, "Decrypting encrypted data in the enclave.");
 
-    ret = ecall_enclave_decrypt_data(global_eid, &ecall_return);
+    ret = ecall_compsecEnclave_decrypt_data(global_eid, &ecall_return);
     if (SGX_SUCCESS != ret)
     {
         printf("Decrypting data on the enclave has failed.\n");
@@ -652,12 +653,12 @@ int SGX_CDECL main(int argc, char *argv[])
     }
 
     /** Both Alice and Bob calculate the average in their own enclave **/
-    debug("Calculating the average in the enclave.");
+    debug(sender, "Calculating the average in the enclave.");
 
     sgx_ec256_signature_t result_signature;
     double result = 0;
 
-    ret = ecall_enclave_calculate_avg(global_eid, &ecall_return, &result, &result_signature);
+    ret = ecall_compsecEnclave_calculate_avg(global_eid, &ecall_return, &result, &result_signature);
     if (SGX_SUCCESS != ret)
     {
         printf("Calculating the average on the enclave has failed.\n");
