@@ -13,25 +13,27 @@ typedef struct ms_ecall_enclave_write_t {
 
 typedef struct ms_ecall_enclave_generate_keys_t {
     int ms_retval;
-    sgx_ec256_public_t *encryption_key;
-    sgx_ec256_public_t *signature_key;
+    sgx_ec256_public_t *public_encryption_key;
+    sgx_ec256_public_t *public_signature_key;
 } ms_ecall_enclave_generate_keys_t;
 
 typedef struct ms_ecall_enclave_generate_shared_key_t {
     int ms_retval;
-    sgx_ec256_public_t *encryption_key;
-    sgx_ec256_public_t *signature_key;
+    sgx_ec256_public_t *received_public_encryption_key;
+    sgx_ec256_public_t *received_public_signature_key;
 } ms_ecall_enclave_generate_shared_key_t;
 
 typedef struct ms_ecall_enclave_encrypt_data_t {
     int ms_retval;
     unsigned int *encrypted_data;
+    unsigned int *encrypted_num_customers;
     sgx_ec256_signature_t *data_signature;
 } ms_ecall_enclave_encrypt_data_t;
 
 typedef struct ms_ecall_enclave_write_encrypted_t {
     int ms_retval;
     unsigned int *encrypted_data;
+    unsigned int *encrypted_num_customers;
     sgx_ec256_signature_t *data_signature;
 } ms_ecall_enclave_write_encrypted_t;
 
@@ -82,11 +84,11 @@ sgx_status_t ecall_enclave_write(sgx_enclave_id_t eid, int *retval, unsigned int
     return status;
 }
 
-sgx_status_t ecall_enclave_generate_keys(sgx_enclave_id_t eid, int *retval, sgx_ec256_public_t *encryption_key, sgx_ec256_public_t *signature_key)
+sgx_status_t ecall_enclave_generate_keys(sgx_enclave_id_t eid, int *retval, sgx_ec256_public_t *public_encryption_key, sgx_ec256_public_t *public_signature_key)
 {
     ms_ecall_enclave_generate_keys_t ms;
-    ms.encryption_key = encryption_key;
-    ms.signature_key = signature_key;
+    ms.public_encryption_key = public_encryption_key;
+    ms.public_signature_key = public_signature_key;
 
     sgx_status_t status = sgx_ecall(eid, 1, &ocall_table_enclave, &ms);
     if (status == SGX_SUCCESS && NULL != retval)
@@ -97,11 +99,11 @@ sgx_status_t ecall_enclave_generate_keys(sgx_enclave_id_t eid, int *retval, sgx_
     return status;
 }
 
-sgx_status_t ecall_enclave_generate_shared_key(sgx_enclave_id_t eid, int *retval, sgx_ec256_public_t *encryption_key, sgx_ec256_public_t *signature_key)
+sgx_status_t ecall_enclave_generate_shared_key(sgx_enclave_id_t eid, int *retval, sgx_ec256_public_t *received_public_encryption_key, sgx_ec256_public_t *received_public_signature_key)
 {
-    ms_ecall_enclave_generate_keys_t ms;
-    ms.encryption_key = encryption_key;
-    ms.signature_key = signature_key;
+    ms_ecall_enclave_generate_shared_key_t ms;
+    ms.received_public_encryption_key = received_public_encryption_key;
+    ms.received_public_signature_key = received_public_signature_key;
 
     sgx_status_t status = sgx_ecall(eid, 2, &ocall_table_enclave, &ms);
     if (status == SGX_SUCCESS && NULL != retval)
@@ -112,10 +114,11 @@ sgx_status_t ecall_enclave_generate_shared_key(sgx_enclave_id_t eid, int *retval
     return status;
 }
 
-sgx_status_t ecall_enclave_encrypt_data(sgx_enclave_id_t eid, int *retval, unsigned int *encrypted_data, sgx_ec256_signature_t *data_signature)
+sgx_status_t ecall_enclave_encrypt_data(sgx_enclave_id_t eid, int *retval, unsigned int *encrypted_data, unsigned int *encrypted_num_customers, sgx_ec256_signature_t *data_signature)
 {
     ms_ecall_enclave_encrypt_data_t ms;
     ms.encrypted_data = encrypted_data;
+    ms.encrypted_num_customers = encrypted_num_customers;
     ms.data_signature = data_signature;
 
     sgx_status_t status = sgx_ecall(eid, 3, &ocall_table_enclave, &ms);
@@ -127,10 +130,11 @@ sgx_status_t ecall_enclave_encrypt_data(sgx_enclave_id_t eid, int *retval, unsig
     return status;
 }
 
-sgx_status_t ecall_enclave_write_encrypted(sgx_enclave_id_t eid, int *retval, unsigned int *encrypted_data, sgx_ec256_signature_t data_signature)
+sgx_status_t ecall_enclave_write_encrypted(sgx_enclave_id_t eid, int *retval, unsigned int *encrypted_data, unsigned int *encrypted_num_customers, sgx_ec256_signature_t data_signature)
 {
-    ms_ecall_enclave_encrypt_data_t ms;
+    ms_ecall_enclave_write_encrypted_t ms;
     ms.encrypted_data = encrypted_data;
+    ms.encrypted_num_customers = encrypted_num_customers;
     ms.data_signature = data_signature;
 
     sgx_status_t status = sgx_ecall(eid, 4, &ocall_table_enclave, &ms);
