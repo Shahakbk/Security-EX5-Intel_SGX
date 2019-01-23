@@ -11,19 +11,19 @@
 #include <pwd.h>
 #include <fstream>
 #include <netdb.h>
+#include <sgx_urts.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/in.h>
 
-#include "sgx_urts.h"
 #include "untrusted.h"
 #include "Enclave_u.h"
 #include "Seal_u.h"
 
-#define SEAL_FILENAME             "Seal.signed.so"
-#define SEALED_KEY_FILE_NAME     "sealed_key.bin"
 #define TOKEN_FILENAME            "enclave.token"
 #define MAX_USERS 10000
+#define MAX_DATA 20000
+#define PORT (5765)
 #define MAX_PATH FILENAME_MAX
 
 /* Global EID shared by multiple threads */
@@ -112,31 +112,8 @@ static sgx_errlist_t sgx_errlist[] = {
                 "Can't open enclave file.",
                 NULL
         },
-        {
-                SGX_ERROR_PCL_ENCRYPTED,
-                "sgx_create_enclave can't open encrypted enclave.",
-                NULL
-        },
-        {
-                SGX_ERROR_PCL_NOT_ENCRYPTED,
-                "sgx_create_encrypted_enclave can't open not-encrypted enclave.",
-                NULL
-        },
-        {
-                SGX_ERROR_PCL_MAC_MISMATCH,
-                "PCL detected invalid section in encrypted enclave.",
-                NULL
-        },
-        {
-                SGX_ERROR_PCL_SHA_MISMATCH,
-                "PCL sealed key SHA mismatch.",
-                NULL
-        },
-        {
-                SGX_ERROR_PCL_GUID_MISMATCH,
-                "PCL sealed key GUID mismatch.",
-                NULL
-        },
+
+        // PCL errors removed.
 };
 
 /* Check error conditions for loading enclave */
@@ -146,8 +123,8 @@ void printErrorMessage(sgx_status_t ret)
     size_t ttl = sizeof sgx_errlist/sizeof sgx_errlist[0];
 
     for (idx = 0; idx < ttl; idx++) {
-        if(ret == sgx_errlist[idx].err) {
-            if(NULL != sgx_errlist[idx].sug)
+        if (ret == sgx_errlist[idx].err) {
+            if (NULL != sgx_errlist[idx].sug)
                 printf("Info: %s\n", sgx_errlist[idx].sug);
             printf("Error: %s\n", sgx_errlist[idx].msg);
             break;
@@ -163,7 +140,7 @@ void printErrorMessage(sgx_status_t ret)
  *   Step 2: call sgx_create_enclave to initialize an enclave instance
  *   Step 3: save the launch token if it is updated
  */
-sgx_status_t  initEnclave(const char *file_name, sgx_enclave_id_t *eid)
+sgx_status_t  initEnclave(void)
 {
     char token_path[MAX_PATH] = {'\0'};
     sgx_launch_token_t token = {0};
@@ -237,28 +214,466 @@ sgx_status_t  initEnclave(const char *file_name, sgx_enclave_id_t *eid)
 }
 
 /* OCall functions */
-void ocallPrintString(const char *user, const char *str)
+void debug(const char *sender, const char *str)
 {
-    printf("%s:\t%s\n", user, str);
+    if (DEBUG)
+    {
+        printf("%s:\t%s\n", sender, str);
+    }
 }
 
+int openSocketServer()
+{
+    int socketFD, newsocketFD;
+    struct sockaddr_in server_address, client_address;
+
+    // Open the socket.
+    socketFD = socket(AF_INET,SOCK_STREAM,0);
+
+    // Check if the call was successful.
+    if (socketFD < 0){
+        printf("Socket was not opened successfully.\n");
+        return SOCKET_FAILURE;
+    }
+
+    // Set socket options.
+    int enable = 1;
+    int set_socket_res = setsockopt(socketFD, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
+
+    // Check if the socket options were set successfully.
+    if (set_socket_res < 0){
+        printf("Socket options were not set successfully.\n");
+        return SOCKET_FAILURE;
+    }
+
+    // Reset server address data.
+    bzero((char *) &server_address, sizeof(server_address));
+
+    // Set server parameters.
+    server_address.sin_family = AF_INET;
+    server_address.sin_addr.s_addr = INADDR_ANY;
+    server_address.sin_port = htons(PORT);
+
+    // Bind the server.
+    int bind_socket_res = bind(socketFD, (struct sockaddr *)&server_address,sizeof(server_address));
+
+    // Check if binding was successfull.
+    if (bind_socket_res < 0){
+        printf("Socket was not bound successfully.\n");
+        close(socketFD);
+        return SOCKET_FAILURE;
+    }
+
+    // Listen on the socket.
+    listen_socket_res = listen(socketFD,1);
+    if(listen_socket_res < 0){
+        printf("Listening on socket was not successful.\n");
+        close(socketFD);
+        return SOCKET_FAILURE;
+    }
+
+    socklen_t clilen = sizeof(client_address);
+
+    // Accept the socket.
+    newsocketFD = accept(socketFD, (struct sockaddr*)&cli_addr, &clilen);
+    if (newsocketFD < 0){
+        printf("Socket accepting was not successful.\n");
+        close(socketFD);
+        return SOCKET_FAILURE;
+    }
+
+    close(socketFD);
+    return newsocketFD;
+}
+
+int openSocketClient(){
+    int socketFD;
+    struct sockaddr_in server_address;
+    struct hostent *server;
+
+    // Open the socket.
+    socketFD = socket(AF_INET, SOCK_STREAM, 0);
+
+    // Check if the call was successful.
+    if (socketFD < 0){
+        printf("Socket was not opened successfully.\n");
+        return SOCKET_FAILURE;
+    }
+
+    // Set socket options.
+    int enable = 1;
+    int set_socket_res = setsockopt(socketFD, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
+
+    if (set_socket_res < 0){
+        printf("Socket options were not set successfully.\n");
+        return SOCKET_FAILURE;
+    }
+
+    // Get the local host.
+    const char local_host[10] = "localhost";
+    server = gethostbyname(local_host);
+
+    // Check if local host was found.
+    if (NULL == server) {
+        printf("Local host was not found.\n");
+        return SOCKET_FAILURE;
+    }
+
+    // Reset server address data.
+    bzero((char *) &server_address, sizeof(server_address));
+
+    server_address.sin_family = AF_INET;
+    bcopy((char *)server->h_addr, (char *)&server_address.sin_addr.s_addr, server->h_length);
+    server_address.sin_port = htons(PORT);
+
+    // Connect the socket.
+    connect_socket_res = connect(socketFD,(struct sockaddr*)&server_address,sizeof(server_address));
+    if (connect_socket_res < 0){
+        printf("Socket was not connected successfully.\n");
+        return SOCKET_FAILURE;
+    }
+
+    return socketFD;
+}
+
+int writeToSocket(int socketFD, void* data, int size){
+    // Try to write on the socket.
+    int socket_write_res = write(socketFD, data, size);
+
+    // Check if writing on the socket was successful.
+    if (socket_write_res < 0){
+        printf("Writing on the socket was not successful.\n");
+        close(socketFD);
+        return SOCKET_FAILURE;
+    }
+
+    return SOCKET_SUCCESS;
+}
+
+int readFromSocket(int socketFD, void* data, int size){
+    // Clear the data before reading.
+    bzero(data,size);
+
+    // Try to read from the socket.
+    int socket_read_res = read(socketFD, data, size);
+
+    // Check if reading from the socket was successful.
+    if (socket_read_res < 0){
+        printf("Reading from the socket was not successful.\n");
+        close(socketFD);
+        return SOCKET_FAILURE;
+    }
+
+    return SOCKET_SUCCESS;
+}
+
+int readDataFromFile(char* file_path, unsigned int* data, unsigned int* ret_customers_num){
+
+    // If file opening fails, an exception may be thrown.
+    try
+    {
+        int idx = 0, customers_num = 0;
+        unsigned int id, sum;
+        std::fstream input;
+
+        // Try to open the file.
+        input.open(file_path,std::fstream::in);
+
+        // Read ID & sum.
+        while(input >> id >> sum)
+        {
+            ++customers_num;
+            data[idx++] = id;
+            data[idx++] = sum;
+        }
+
+        // Return the number of customers.
+        *ret_customers_num = customers_num;
+
+    } catch (...) {
+        return FILE_READ_FAILURE;
+    }
+
+    return FILE_READ_SUCCESS;
+}
+
+bool isBob(const char* name)
+{
+    return strcmp(name, "bob") == 0;
+}
+
+bool isAlice(const char* name)
+{
+    return strcmp(name, "alice") == 0;
+}
 
 /* Application entry */
 int SGX_CDECL main(int argc, char *argv[])
 {
-
-    //TODO to be implemented
-
     (void)(argc);
     (void)(argv);
 
+    // Getting the absolute path using stdlib's realpath.
+    char path[MAX_PATH];
+    char *path_ptr = NULL;
+    char *dir = dirname(argv[0]);
+    path_ptr = realpath(dir, path);
 
-    /* Initialize the enclave */
-    if ( initialize_enclave ( ENCLAVE_FILENAME, &global_eid ) < 0 ){
-        return -1;
+    // Try to change the working directory based on the path.
+    if (0 != chdir(path))
+    {
+        abort();
     }
 
-    printf("Info: SampleEnclave successfully returned.\n");
+    char *sender = argv[1];
+    char *file_path = argv[2];
 
-    return 0;
+    /** Initialize the enclave. **/
+    debug(sender, "Initializing the enclave.");
+
+    if (initEnclave() < 0)
+    {
+        return ENCLAVE_FAILURE;
+    }
+
+    /** Opening a socket between Alice & Bob where Alice is the server and Bob is the client. **/
+    debug(sender, "Opening a socket.");
+
+    int socketFD;
+    if (isAlice(sender)
+    {
+        socketFD = openSocketServer();
+        if (0 > socketFD) {
+            abort();
+        }
+    } else if (isBob(sender)
+    {
+        socketFD = openSocketClient();
+        if (0 > socketFD)
+        {
+            abort();
+        }
+    }
+
+    /** Reading the sender's data from the file. **/
+    debug(sender, "Reading from a file to the enclave.");
+
+    unsigned int data[MAX_DATA]; //TODO memset 0?
+    unsigned int num_customers = 0;
+    if (FILE_READ_FAILURE == readDataFromFile(file_path, data, num_customers))
+    {
+        printf("Error reading from file.\n");
+        close(socketFD);
+        abort();
+    }
+
+    sgx_status_t ret = SGX_ERROR_UNEXPECTED;
+
+    /** Write the data to the enclave. **/
+    debug(sender, "Writing data to the enclave.");
+
+    int ecall_return = 0;
+    ret = ecall_enclave_write(global_eid, &ecall_return, data, num_customers);
+    if (SGX_SUCCESS != ret)
+    {
+        printf("Writing to enclave was not successful.\n");
+        close(socketFD);
+        abort();
+    }
+
+    // After writing the data to the enclave, we would like to erase it from the untrusted app.
+    memset(data, 0, MAX_DATA * sizeof(unsigned int));
+
+    /** Creating public & private key pairs. **/
+    debug(sender, "Creating public & private keys.");
+
+    sgx_ecc256_public_t encryption_key, get_encryption_key;
+    sgx_ecc256_public_t signature_key, get_signature_key;
+    ret = ecall_enclave_generate_keys(global_eid, &ecall_return, &encryption_key, &signature_key);
+    if (SGX_SUCCESS != ret)
+    {
+        printf("Keys generation process was not successful.\n");
+        close(socketFD);
+        abort();
+    }
+
+    /** Exchanging keys. **/
+    debug(sender, "Exchanging keys.");
+
+    // Bob sends his public keys to Alice.
+    debug(sender, "Bob sends his keys to Alice.");
+
+    if (isBob(sender))
+    {
+        // Write the public keys to the socket.
+        if (0 > writeToSocket(socketFD, &encryption_key, sizeof(encryption_key)) ||
+            0 > writeToSocket(socketFD, &signature_key, sizeof(signature_key)))
+        {
+            printf("Writing the public key to the socket has failed.\n");
+            close(socketFD);
+            abort();
+        }
+    } else if (isAlice(sender))
+    {
+        // Read the public keys from the socket.
+        if (0 > readFromSocket(socketFD, &get_encryption_key, sizeof(get_encryption_key)) ||
+            0 > readFromSocket(socketFD, &get_signature_key, sizeof(get_signature_key)))
+        {
+            printf("Reading the public key to the socket has failed.\n");
+            close(socketFD);
+            abort();
+        }
+    }
+
+    // Alice sends her public keys to Bob.
+    debug(sender, "Alice sends her keys to Bob");
+
+    if (isBob(sender))
+    {
+        // Read the public keys from the socket.
+        if (0 > readFromSocket(socketFD, &get_encryption_key, sizeof(get_encryption_key)) ||
+            0 > readFromSocket(socketFD, &get_signature_key, sizeof(get_signature_key)))
+        {
+            printf("Reading the public key to the socket has failed.\n");
+            close(socketFD);
+            abort();
+        }
+    } else if (isAlice(sender))
+    {
+        // Write the public keys to the socket.
+        if (0 > writeToSocket(socketFD, &encryption_key, sizeof(encryption_key)) ||
+            0 > writeToSocket(socketFD, &signature_key, sizeof(signature_key)))
+        {
+            printf("Writing the public key to the socket has failed.\n");
+            close(socketFD);
+            abort();
+        }
+    }
+
+    /** Generate a shared key using DH. **/
+    debug(sender, "Generating a shared key.");
+
+    ret = ecall_enclave_generate_shared_key(global_eid, &ecall_return, &get_encryption_key, &get_signature_key);
+    if (SGX_SUCCESS != ret)
+    {
+        printf("Shared key generation has failed.\n");
+        close(socketFD);
+        abort();
+    }
+
+    /** Both Alice and Bob will now encrypt their own data on their personal enclave. **/
+    debug(sender, "Encrypting the data on the enclave.");
+
+    unsigned int encrypted_data[MAX_DATA], get_encrypted_data[MAX_DATA];
+    sgx_ecc256_signature_t data_signature, get_data_signature;
+
+    ret = ecall_enclave_encrypt_data(global_eid, &ecall_return, encrypted_data, &data_signature);
+    if (SGX_SUCCESS != ret)
+    {
+        printf("Data encryption in the enclave has failed.\n");
+        close(socketFD);
+        abort();
+    }
+
+    /** Exchanging encrypted data and signatures. **/
+    debug("Exchanging encrypted data.");
+
+    // Alice sends her signature and encrypted data to Bob.
+    debug(sender, "Alice sends encrypted data and signature to Bob.");
+
+    if (isAlice(sender))
+    {
+        if (0 > writeToSocket(socketFD, &data_signature, sizeof(data_signature)) ||
+            0 > writeToSocket(socketFD, encrypted_data, sizeof(encrypted_data)))
+        {
+            printf("Writing encrypted data to the enclave has failed.\n");
+            close(socketFD);
+            abort();
+        }
+    } else if (isBob(sender))
+    {
+        if (0 > readFromSocket(socketFD, &get_data_signature, sizeof(get_data_signature)) ||
+            0 > readFromSocket(socketFD, get_encrypted_data, sizeof(get_encrypted_data)))
+        {
+            printf("Reading encrypted data to the enclave has failed.\n");
+            close(socketFD);
+            abort();
+        }
+    }
+
+    // Bob sends his signature and encrypted data to Alice.
+    debug(sender, "Bob sends encrypted data and signature to Alice.");
+
+    if (isBob(sender))
+    {
+        if (0 > writeToSocket(socketFD, &data_signature, sizeof(data_signature)) ||
+            0 > writeToSocket(socketFD, encrypted_data, sizeof(encrypted_data)))
+        {
+            printf("Writing encrypted data to the enclave has failed.\n");
+            close(socketFD);
+            abort();
+        }
+    } else if (isAlice(sender))
+    {
+        if (0 > readFromSocket(socketFD, &get_data_signature, sizeof(get_data_signature)) ||
+            0 > readFromSocket(socketFD, get_encrypted_data, sizeof(get_encrypted_data)))
+        {
+            printf("Reading encrypted data to the enclave has failed.\n");
+            close(socketFD);
+            abort();
+        }
+    }
+
+    /** Both Alice and Bob write the write signatures and encrypted data into their own enclave. **/
+    debug("Writing the encrypted data into the enclave.");
+
+    ret = ecall_enclave_write_encrypted(global_eid, &ecall_return, get_encrypted_data, get_data_signature);
+    if (SGX_SUCCESS != ret)
+    {
+        printf("Writing the received encrypted data to the enclave has failed.\n");
+        close(socketFD);
+        abort();
+    }
+
+    /** Both Alice and Bob decrypt the encrypted data in their own enclave using the shared key **/
+    debug("Decrypting encrypted data in the enclave.");
+
+    ret = ecall_enclave_decrypt_data(global_eid, &ecall_return);
+    if (SGX_SUCCESS != ret)
+    {
+        printf("Decrypting data on the enclave has failed.\n");
+        close(socketFD);
+        abort();
+    }
+
+    /** Both Alice and Bob calculate the average in their own enclave **/
+    debug("Calculating the average in the enclave.");
+
+    sgx_ec256_signature_t result_signature;
+    double result = 0;
+
+    ret = ecall_enclave_calculate_avg(global_eid, &ecall_return, &result, &result_signature);
+    if (SGX_SUCCESS != ret)
+    {
+        printf("Calculating the average on the enclave has failed.\n");
+        close(socketFD);
+        abort();
+    }
+
+    string sender_print;
+    if (isBob(sender))
+    {
+        sender_print = "Bob";
+    } else if (isAlice(sender))
+    {
+        sender_print = "Alice";
+    }
+
+    printf("%s average is: %f\n", sender_print, result);
+
+    // Close the socket and destroy the enclave.
+    close(socketFD);
+    sgx_destroy_enclave(global_eid);
+
+    return ecall_return;
 }

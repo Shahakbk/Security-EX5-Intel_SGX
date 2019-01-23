@@ -31,6 +31,17 @@
 #define SGX_SUCCESS 0
 #define SGX_FAILURE -1
 
+#define SOCKET_SUCCESS 0
+#define SOCKET_FAILURE -1
+
+#define FILE_READ_SUCCESS 0
+#define FILE_READ_FAILURE -1
+
+#define ENCLAVE_SUCCESS 0
+#define ENCLAVE_FAILURE -1
+
+#define DEBUG 1
+
 extern sgx_enclave_id_t global_eid;    /* global enclave id */
 
 #if defined(__cplusplus)

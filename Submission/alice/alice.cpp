@@ -6,7 +6,7 @@
 #include <iostream>
 #include <string>
 
-using std::string
+using std::string;
 
 int main(int argc, char *argv[])
 {
@@ -18,6 +18,6 @@ int main(int argc, char *argv[])
     string alice_command = alice_enclave + alice_path;
 
     // execute the command.
-    system(alice_command.c_str())
+    system(alice_command.c_str());
 
 }

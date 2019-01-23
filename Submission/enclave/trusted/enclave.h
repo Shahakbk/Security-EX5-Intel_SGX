@@ -6,10 +6,5 @@
 #define HW5_ENCLAVE_H
 
 
-class enclave
-{
-
-};
-
 
 #endif //HW5_ENCLAVE_H

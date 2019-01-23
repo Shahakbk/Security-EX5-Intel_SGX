@@ -6,7 +6,7 @@
 #include <iostream>
 #include <string>
 
-using std::string
+using std::string;
 
 int main(int argc, char *argv[])
 {
@@ -18,6 +18,6 @@ int main(int argc, char *argv[])
     string bob_command = bob_enclave + bob_path;
 
     // execute the command.
-    system(bob_command.c_str())
+    system(bob_command.c_str());
 
 }
