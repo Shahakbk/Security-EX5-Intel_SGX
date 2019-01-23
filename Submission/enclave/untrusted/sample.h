@@ -24,8 +24,8 @@
 # define FALSE 0
 #endif
 
-#define TOKEN_FILENAME   "enclave.token"
-#define COMPSECENCLAVE_FILENAME "enclave.signed.so"
+#define TOKEN_FILENAME   "compsecEnclave.token"
+#define COMPSECENCLAVE_FILENAME "compsecEnclave.signed.so"
 
 #define SGX_SUCCESS 0
 #define SGX_FAILURE -1

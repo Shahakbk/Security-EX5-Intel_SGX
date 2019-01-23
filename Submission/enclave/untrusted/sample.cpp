@@ -4,14 +4,14 @@
 
 #include <iostream>
 #include <string>
+#include <fstream>
+
 #include <string.h>
 #include <assert.h>
 #include <unistd.h>
 #include <libgen.h>
 #include <pwd.h>
-#include <fstream>
 #include <sgx_urts.h>
-
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/in.h>
@@ -190,7 +190,7 @@ int initEnclave(void)
 
     // PCL usage for intellectual property protection removed.
 
-    ret = sgx_create_enclave(ENCLAVE_FILENAME, SGX_DEBUG_FLAG, &token, &updated, &global_eid, NULL);
+    ret = sgx_create_enclave(COMPSECENCLAVE_FILENAME, SGX_DEBUG_FLAG, &token, &updated, &global_eid, NULL);
     if (ret != SGX_SUCCESS) {
         printErrorMessage(ret);
         if (fp != NULL) fclose(fp);
@@ -233,7 +233,7 @@ int openSocketServer()
     socketFD = socket(AF_INET,SOCK_STREAM,0);
 
     // Check if the call was successful.
-    if (socketFD < 0){
+    if (0 > socketFD){
         printf("Socket was not opened successfully.\n");
         return SOCKET_FAILURE;
     }
@@ -260,7 +260,7 @@ int openSocketServer()
     int bind_socket_res = bind(socketFD, (struct sockaddr *)&server_address,sizeof(server_address));
 
     // Check if binding was successfull.
-    if (bind_socket_res < 0){
+    if (0 > bind_socket_res){
         printf("Socket was not bound successfully.\n");
         close(socketFD);
         return SOCKET_FAILURE;
@@ -268,7 +268,7 @@ int openSocketServer()
 
     // Listen on the socket.
     int listen_socket_res = listen(socketFD,1);
-    if(listen_socket_res < 0){
+    if(0 > listen_socket_res){
         printf("Listening on socket was not successful.\n");
         close(socketFD);
         return SOCKET_FAILURE;
@@ -278,7 +278,7 @@ int openSocketServer()
 
     // Accept the socket.
     newsocketFD = accept(socketFD, (struct sockaddr*)&client_address, &clilen);
-    if (newsocketFD < 0){
+    if (0 > newsocketFD){
         printf("Socket accepting was not successful.\n");
         close(socketFD);
         return SOCKET_FAILURE;
@@ -297,7 +297,7 @@ int openSocketClient(){
     socketFD = socket(AF_INET, SOCK_STREAM, 0);
 
     // Check if the call was successful.
-    if (socketFD < 0){
+    if (0 > socketFD){
         printf("Socket was not opened successfully.\n");
         return SOCKET_FAILURE;
     }
@@ -306,7 +306,7 @@ int openSocketClient(){
     int enable = 1;
     int set_socket_res = setsockopt(socketFD, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
 
-    if (set_socket_res < 0){
+    if (0 > set_socket_res){
         printf("Socket options were not set successfully.\n");
         return SOCKET_FAILURE;
     }
@@ -330,7 +330,7 @@ int openSocketClient(){
 
     // Connect the socket.
     int connect_socket_res = connect(socketFD,(struct sockaddr*)&server_address,sizeof(server_address));
-    if (connect_socket_res < 0){
+    if (0 > connect_socket_res){
         printf("Socket was not connected successfully.\n");
         return SOCKET_FAILURE;
     }
@@ -343,7 +343,7 @@ int writeToSocket(int socketFD, void* data, int size){
     int socket_write_res = write(socketFD, data, size);
 
     // Check if writing on the socket was successful.
-    if (socket_write_res < 0){
+    if (0 > socket_write_res){
         printf("Writing on the socket was not successful.\n");
         close(socketFD);
         return SOCKET_FAILURE;
@@ -360,7 +360,7 @@ int readFromSocket(int socketFD, void* data, int size){
     int socket_read_res = read(socketFD, data, size);
 
     // Check if reading from the socket was successful.
-    if (socket_read_res < 0){
+    if (0 > socket_read_res){
         printf("Reading from the socket was not successful.\n");
         close(socketFD);
         return SOCKET_FAILURE;
@@ -371,12 +371,18 @@ int readFromSocket(int socketFD, void* data, int size){
 
 int readDataFromFile(char* file_path, unsigned int* data){
 
-    // If file opening fails, an exception may be thrown.
+    // If file opening fails, sometimes an exception may be thrown without input.fail() indicating.
     try
     {
-        int idx = 0;
+        int idx = 1;
         unsigned int id, sum, customers_num = 0;
         std::fstream input;
+
+        // Check if the file was opened successfully.
+        if (input.fail())
+        {
+            return FILE_READ_FAILURE;
+        }
 
         // Try to open the file.
         input.open(file_path,std::fstream::in);
@@ -433,8 +439,9 @@ int SGX_CDECL main(int argc, char *argv[])
     /** Initialize the enclave. **/
     debug(sender, "Initializing the enclave.");
 
-    if (initEnclave() < 0)
+    if (0 > initEnclave())
     {
+        printf("Enclave initialization has failed.\n");
         return ENCLAVE_FAILURE;
     }
 
@@ -446,6 +453,7 @@ int SGX_CDECL main(int argc, char *argv[])
     {
         socketFD = openSocketServer();
         if (0 > socketFD) {
+            printf("Could not open a socket successfully.\n");
             abort();
         }
     } else if (isBob(sender))
@@ -453,6 +461,7 @@ int SGX_CDECL main(int argc, char *argv[])
         socketFD = openSocketClient();
         if (0 > socketFD)
         {
+            printf("Could not open a socket successfully.\n");
             abort();
         }
     }
@@ -460,7 +469,11 @@ int SGX_CDECL main(int argc, char *argv[])
     /** Reading the sender's data from the file. **/
     debug(sender, "Reading from a file to the enclave.");
 
+    // Clear an array to receive the data.
     unsigned int data[MAX_DATA];
+    memset(data, 0, MAX_DATA_SIZE);
+
+    // Read the data from the file.
     if (FILE_READ_FAILURE == readDataFromFile(file_path, data))
     {
         printf("Error reading from file.\n");
@@ -468,13 +481,11 @@ int SGX_CDECL main(int argc, char *argv[])
         abort();
     }
 
-    sgx_status_t ret = SGX_ERROR_UNEXPECTED;
-
     /** Write the data to the enclave. **/
     debug(sender, "Writing data to the enclave.");
 
     int ecall_return = 0;
-    ret = ecall_compsecEnclave_write(global_eid, &ecall_return, data);
+    sgx_status_t ret = ecall_compsecEnclave_write(global_eid, &ecall_return, data);
     if (SGX_SUCCESS != ret)
     {
         printf("Writing to enclave was not successful.\n");
@@ -566,10 +577,10 @@ int SGX_CDECL main(int argc, char *argv[])
     debug(sender, "Encrypting the data on the enclave.");
 
     unsigned int encrypted_data[MAX_DATA], get_encrypted_data[MAX_DATA];
-    unsigned int encrypted_num_customers = 0, get_encrypted_num_customers = 0;
     sgx_ec256_signature_t data_signature, get_data_signature;
+    memset(get_encrypted_data, 0, MAX_DATA_SIZE);
 
-    ret = ecall_compsecEnclave_encrypt_data(global_eid, &ecall_return, encrypted_data, &encrypted_num_customers, &data_signature);
+    ret = ecall_compsecEnclave_encrypt_data(global_eid, &ecall_return, encrypted_data, &data_signature);
     if (SGX_SUCCESS != ret)
     {
         printf("Data encryption in the enclave has failed.\n");
@@ -586,8 +597,7 @@ int SGX_CDECL main(int argc, char *argv[])
     if (isAlice(sender))
     {
         if (0 > writeToSocket(socketFD, &data_signature, sizeof(data_signature)) ||
-            0 > writeToSocket(socketFD, encrypted_data, sizeof(encrypted_data)) ||
-            0 > writeToSocket(socketFD, &encrypted_num_customers, sizeof(encrypted_num_customers)))
+            0 > writeToSocket(socketFD, encrypted_data, sizeof(encrypted_data)))
         {
             printf("Writing encrypted data to the enclave has failed.\n");
             close(socketFD);
@@ -596,8 +606,7 @@ int SGX_CDECL main(int argc, char *argv[])
     } else if (isBob(sender))
     {
         if (0 > readFromSocket(socketFD, &get_data_signature, sizeof(get_data_signature)) ||
-            0 > readFromSocket(socketFD, get_encrypted_data, sizeof(get_encrypted_data)) ||
-            0 > readFromSocket(socketFD, &get_encrypted_num_customers, sizeof(get_encrypted_num_customers)))
+            0 > readFromSocket(socketFD, get_encrypted_data, sizeof(get_encrypted_data)))
         {
             printf("Reading encrypted data to the enclave has failed.\n");
             close(socketFD);
@@ -611,8 +620,7 @@ int SGX_CDECL main(int argc, char *argv[])
     if (isBob(sender))
     {
         if (0 > writeToSocket(socketFD, &data_signature, sizeof(data_signature)) ||
-            0 > writeToSocket(socketFD, encrypted_data, sizeof(encrypted_data)) ||
-            0 > writeToSocket(socketFD, &encrypted_num_customers, sizeof(encrypted_num_customers)))
+            0 > writeToSocket(socketFD, encrypted_data, sizeof(encrypted_data)))
         {
             printf("Writing encrypted data to the enclave has failed.\n");
             close(socketFD);
@@ -621,8 +629,7 @@ int SGX_CDECL main(int argc, char *argv[])
     } else if (isAlice(sender))
     {
         if (0 > readFromSocket(socketFD, &get_data_signature, sizeof(get_data_signature)) ||
-            0 > readFromSocket(socketFD, get_encrypted_data, sizeof(get_encrypted_data)) ||
-            0 > readFromSocket(socketFD, &get_encrypted_num_customers, sizeof(get_encrypted_num_customers)))
+            0 > readFromSocket(socketFD, get_encrypted_data, sizeof(get_encrypted_data)))
         {
             printf("Reading encrypted data to the enclave has failed.\n");
             close(socketFD);
@@ -633,7 +640,7 @@ int SGX_CDECL main(int argc, char *argv[])
     /** Both Alice and Bob write the write signatures and encrypted data into their own enclave. **/
     debug(sender, "Writing the encrypted data into the enclave.");
 
-    ret = ecall_compsecEnclave_write_encrypted(global_eid, &ecall_return, get_encrypted_data, &get_encrypted_num_customers, get_data_signature);
+    ret = ecall_compsecEnclave_write_encrypted(global_eid, &ecall_return, get_encrypted_data, get_data_signature);
     if (SGX_SUCCESS != ret)
     {
         printf("Writing the received encrypted data to the enclave has failed.\n");
@@ -641,7 +648,7 @@ int SGX_CDECL main(int argc, char *argv[])
         abort();
     }
 
-    /** Both Alice and Bob decrypt the encrypted data in their own enclave using the shared key **/
+    /** Both Alice and Bob decrypt the encrypted data in their own enclave using the shared key. **/
     debug(sender, "Decrypting encrypted data in the enclave.");
 
     ret = ecall_compsecEnclave_decrypt_data(global_eid, &ecall_return);
@@ -677,8 +684,18 @@ int SGX_CDECL main(int argc, char *argv[])
 
     printf("%s average is: %f\n", sender_print, result);
 
-    // Close the socket and destroy the enclave.
+    // Check if errors were discovered during the calculation.
+    if (0 != ecall_return)
+    {
+        printf("Error %d has occured.\n", ecall_return);
+    } else {
+        debug(sender, "Calculation is done without errors");
+    }
+
+    // Close the socket.
     close(socketFD);
+
+    // Destroy the enclave.
     sgx_destroy_enclave(global_eid);
 
     return ecall_return;

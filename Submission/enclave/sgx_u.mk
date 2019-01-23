@@ -1,6 +1,6 @@
 ######## SGX SDK Settings ########
 
-# Based on Intel's template.
+### Based on INTEL's Sample template ###
 
 SGX_SDK ?= /opt/intel/sgxsdk
 SGX_MODE ?= SIM
@@ -64,7 +64,7 @@ else
 endif
 
 App_Cpp_Flags := $(App_C_Flags) -std=c++11
-App_Link_Flags := $(SGX_COMMON_CFLAGS) -L$(SGX_LIBRARY_PATH) -l$(Urts_Library_Name) -lpthread 
+App_Link_Flags := $(SGX_COMMON_CFLAGS) -L$(SGX_LIBRARY_PATH) -l$(Urts_Library_Name) -lpthread
 
 ifneq ($(SGX_MODE), HW)
 	App_Link_Flags += -lsgx_uae_service_sim
@@ -92,7 +92,7 @@ all: sample
 	@echo "Build sample [$(Build_Mode)|$(SGX_ARCH)] success!"
 	@echo
 	@echo "*********************************************************************************************************************************************************"
-	@echo "PLEASE NOTE: In this mode, please sign the enclave.so first using Two Step Sign mechanism before you run the app to launch and access the enclave."
+	@echo "PLEASE NOTE: In this mode, please sign the compsecEnclave.so first using Two Step Sign mechanism before you run the app to launch and access the enclave."
 	@echo "*********************************************************************************************************************************************************"
 	@echo
 
@@ -109,11 +109,11 @@ endif
 
 ######## App Objects ########
 
-$(UNTRUSTED_DIR)/enclave_u.c: $(SGX_EDGER8R) trusted/enclave.edl
-	@cd $(UNTRUSTED_DIR) && $(SGX_EDGER8R) --untrusted ../trusted/enclave.edl --search-path ../trusted --search-path $(SGX_SDK)/include
+$(UNTRUSTED_DIR)/compsecEnclave_u.c: $(SGX_EDGER8R) trusted/compsecEnclave.edl
+	@cd $(UNTRUSTED_DIR) && $(SGX_EDGER8R) --untrusted ../trusted/compsecEnclave.edl --search-path ../trusted --search-path $(SGX_SDK)/include
 	@echo "GEN  =>  $@"
 
-$(UNTRUSTED_DIR)/enclave_u.o: $(UNTRUSTED_DIR)/enclave_u.c
+$(UNTRUSTED_DIR)/compsecEnclave_u.o: $(UNTRUSTED_DIR)/compsecEnclave_u.c
 	@$(CC) $(App_C_Flags) -c $< -o $@
 	@echo "CC   <=  $<"
 
@@ -121,7 +121,7 @@ $(UNTRUSTED_DIR)/%.o: $(UNTRUSTED_DIR)/%.cpp
 	@$(CXX) $(App_Cpp_Flags) -c $< -o $@
 	@echo "CXX  <=  $<"
 
-sample: $(UNTRUSTED_DIR)/enclave_u.o $(App_Cpp_Objects)
+sample: $(UNTRUSTED_DIR)/compsecEnclave_u.o $(App_Cpp_Objects)
 	@$(CXX) $^ -o $@ $(App_Link_Flags)
 	@echo "LINK =>  $@"
 
@@ -129,4 +129,4 @@ sample: $(UNTRUSTED_DIR)/enclave_u.o $(App_Cpp_Objects)
 .PHONY: clean
 
 clean:
-	@rm -f sample  $(App_Cpp_Objects) $(UNTRUSTED_DIR)/enclave_u.* 
+	@rm -f sample  $(App_Cpp_Objects) $(UNTRUSTED_DIR)/compsecEnclave_u.*

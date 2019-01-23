@@ -1,6 +1,6 @@
 ######## SGX SDK Settings ########
 
-# Based on Intel's template.
+### Based on INTEL's Sample template ###
 
 SGX_SDK ?= /opt/intel/sgxsdk
 SGX_MODE ?= SIM
@@ -46,28 +46,28 @@ endif
 
 Crypto_Library_Name := sgx_tcrypto
 
-Enclave_Cpp_Files := trusted/enclave.cpp 
-Enclave_C_Files := 
-Enclave_Include_Paths := -IInclude -Itrusted -I$(SGX_SDK)/include -I$(SGX_SDK)/include/tlibc -I$(SGX_SDK)/include/stlport
+CompsecEnclave_Cpp_Files := trusted/compsecEnclave.cpp
+CompsecEnclave_C_Files :=
+CompsecEnclave_Include_Paths := -IInclude -Itrusted -I$(SGX_SDK)/include -I$(SGX_SDK)/include/tlibc -I$(SGX_SDK)/include/stlport
 
 
 Flags_Just_For_C := -Wno-implicit-function-declaration -std=c11
-Common_C_Cpp_Flags := $(SGX_COMMON_CFLAGS) -nostdinc -fvisibility=hidden -fpie -fstack-protector $(Enclave_Include_Paths) -fno-builtin-printf -I.
-Enclave_C_Flags := $(Flags_Just_For_C) $(Common_C_Cpp_Flags)
-Enclave_Cpp_Flags :=  $(Common_C_Cpp_Flags) -std=c++11 -nostdinc++ -fno-builtin-printf -I.
+Common_C_Cpp_Flags := $(SGX_COMMON_CFLAGS) -nostdinc -fvisibility=hidden -fpie -fstack-protector $(CompsecEnclave_Include_Paths) -fno-builtin-printf -I.
+CompsecEnclave_C_Flags := $(Flags_Just_For_C) $(Common_C_Cpp_Flags)
+CompsecEnclave_Cpp_Flags :=  $(Common_C_Cpp_Flags) -std=c++11 -nostdinc++ -fno-builtin-printf -I.
 
-Enclave_Cpp_Flags := $(Enclave_Cpp_Flags)  -fno-builtin-printf
+CompsecEnclave_Cpp_Flags := $(CompsecEnclave_Cpp_Flags)  -fno-builtin-printf
 
-Enclave_Link_Flags := $(SGX_COMMON_CFLAGS) -Wl,--no-undefined -nostdlib -nodefaultlibs -nostartfiles -L$(SGX_LIBRARY_PATH) \
+CompsecEnclave_Link_Flags := $(SGX_COMMON_CFLAGS) -Wl,--no-undefined -nostdlib -nodefaultlibs -nostartfiles -L$(SGX_LIBRARY_PATH) \
 	-Wl,--whole-archive -l$(Trts_Library_Name) -Wl,--no-whole-archive \
 	-Wl,--start-group -lsgx_tstdc -lsgx_tstdcxx -l$(Crypto_Library_Name) -l$(Service_Library_Name) -Wl,--end-group \
 	-Wl,-Bstatic -Wl,-Bsymbolic -Wl,--no-undefined \
 	-Wl,-pie,-eenclave_entry -Wl,--export-dynamic  \
 	-Wl,--defsym,__ImageBase=0 \
-	-Wl,--version-script=trusted/enclave.lds
+	-Wl,--version-script=trusted/compsecEnclave.lds
 
-Enclave_Cpp_Objects := $(Enclave_Cpp_Files:.cpp=.o)
-Enclave_C_Objects := $(Enclave_C_Files:.c=.o)
+CompsecEnclave_Cpp_Objects := $(CompsecEnclave_Cpp_Files:.cpp=.o)
+CompsecEnclave_C_Objects := $(CompsecEnclave_C_Files:.c=.o)
 
 ifeq ($(SGX_MODE), HW)
 ifneq ($(SGX_DEBUG), 1)
@@ -81,17 +81,17 @@ endif
 .PHONY: all run
 
 ifeq ($(Build_Mode), HW_RELEASE)
-all: enclave.so
-	@echo "Build enclave enclave.so  [$(Build_Mode)|$(SGX_ARCH)] success!"
+all: compsecEnclave.so
+	@echo "Build enclave compsecEnclave.so  [$(Build_Mode)|$(SGX_ARCH)] success!"
 	@echo
 	@echo "*********************************************************************************************************************************************************"
-	@echo "PLEASE NOTE: In this mode, please sign the enclave.so first using Two Step Sign mechanism before you run the app to launch and access the enclave."
+	@echo "PLEASE NOTE: In this mode, please sign the compsecEnclave.so first using Two Step Sign mechanism before you run the app to launch and access the enclave."
 	@echo "*********************************************************************************************************************************************************"
-	@echo 
+	@echo
 
 
 else
-all: enclave.signed.so
+all: compsecEnclave.signed.so
 endif
 
 run: all
@@ -101,30 +101,30 @@ ifneq ($(Build_Mode), HW_RELEASE)
 endif
 
 
-######## enclave Objects ########
+######## compsecEnclave Objects ########
 
-trusted/enclave_t.c: $(SGX_EDGER8R) ./trusted/enclave.edl
-	@cd ./trusted && $(SGX_EDGER8R) --trusted ../trusted/enclave.edl --search-path ../trusted --search-path $(SGX_SDK)/include
+trusted/compsecEnclave_t.c: $(SGX_EDGER8R) ./trusted/compsecEnclave.edl
+	@cd ./trusted && $(SGX_EDGER8R) --trusted ../trusted/compsecEnclave.edl --search-path ../trusted --search-path $(SGX_SDK)/include
 	@echo "GEN  =>  $@"
 
-trusted/enclave_t.o: ./trusted/enclave_t.c
-	@$(CC) $(Enclave_C_Flags) -c $< -o $@
+trusted/compsecEnclave_t.o: ./trusted/compsecEnclave_t.c
+	@$(CC) $(CompsecEnclave_C_Flags) -c $< -o $@
 	@echo "CC   <=  $<"
 
 trusted/%.o: trusted/%.cpp
-	@$(CXX) $(Enclave_Cpp_Flags) -c $< -o $@
+	@$(CXX) $(CompsecEnclave_Cpp_Flags) -c $< -o $@
 	@echo "CXX  <=  $<"
 
 trusted/%.o: trusted/%.c
-	@$(CC) $(Enclave_C_Flags) -c $< -o $@
+	@$(CC) $(CompsecEnclave_C_Flags) -c $< -o $@
 	@echo "CC  <=  $<"
 
-enclave.so: trusted/enclave_t.o $(Enclave_Cpp_Objects) $(Enclave_C_Objects)
-	@$(CXX) $^ -o $@ $(Enclave_Link_Flags)
+compsecEnclave.so: trusted/compsecEnclave_t.o $(CompsecEnclave_Cpp_Objects) $(CompsecEnclave_C_Objects)
+	@$(CXX) $^ -o $@ $(CompsecEnclave_Link_Flags)
 	@echo "LINK =>  $@"
 
-enclave.signed.so: enclave.so
-	@$(SGX_ENCLAVE_SIGNER) sign -key trusted/enclave_private.pem -enclave enclave.so -out $@ -config trusted/enclave.config.xml
+compsecEnclave.signed.so: compsecEnclave.so
+	@$(SGX_ENCLAVE_SIGNER) sign -key trusted/compsecEnclave_private.pem -enclave compsecEnclave.so -out $@ -config trusted/compsecEnclave.config.xml
 	@echo "SIGN =>  $@"
 clean:
-	@rm -f enclave.* trusted/enclave_t.* $(Enclave_Cpp_Objects) $(Enclave_C_Objects)
+	@rm -f compsecEnclave.* trusted/compsecEnclave_t.* $(CompsecEnclave_Cpp_Objects) $(CompsecEnclave_C_Objects)
